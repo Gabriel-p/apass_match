@@ -1,0 +1,30 @@
+
+# Column IDs in photometry file. If no calumn names are assigned,
+# use 'col2', 'col3', etc.
+#
+#       x      y      V     BV
+CI   col2   col3   col4   col6
+
+
+# Magnitude limit for the photometry.
+#
+#   V_min    V_max
+VM     7.       16.
+
+
+# Tolerance in arcsec for the cross-match.
+#
+#    tol
+TO    3.
+
+
+# Outlier max tolerance  (in V mags)
+#
+#   max_tol_mags
+OM            5
+
+
+# Create file to feed astrometry.net?
+#
+#   astrom_gen   xmin     xmax   ymin    ymax
+AT       False     0.   20000.     0.   20000.
