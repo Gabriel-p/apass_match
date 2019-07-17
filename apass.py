@@ -4,29 +4,26 @@ from os import makedirs
 from os import listdir
 from os.path import isfile, join
 from pathlib import Path
+import logging
 
 import numpy as np
 from functools import reduce
 from scipy.spatial import cKDTree
-from scipy.optimize import curve_fit
 import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
 from astropy.io import ascii
-from astropy.io import fits
-from astropy.table import Table
 
 
 def main():
     """
-    Requires three input files with the following naming convention:
+    Requires two input files with the following naming convention:
 
     1. photometry file    : cluster_name.dat
     2. APASS file         : cluster_name_apass.csv
-    3. astrometry.net file: cluster_name-corr.fits
+
     """
 
-    col_IDs, V_min, V_max, N_tol, outl_tol, astrom_gen, regs_filt =\
-        params_input()
+    col_IDs, V_min, V_max, N_tol, outl_tol = params_input()
 
     # Generate output dir if it doesn't exist.
     if not exists('out'):
@@ -41,50 +38,54 @@ def main():
     for final_phot in clusters:
 
         # Extract name of file without extension
-        f_id = final_phot[3:-4]
+        cl_name = final_phot[3:-4]
 
-        # Log file.
-        log = open(join(mypath, 'out', f_id + '.log'), "w")
+        # Set up logging module
+        level = logging.INFO
+        frmt = ' %(message)s'
+        handlers = [
+            logging.FileHandler(
+                join(mypath, 'out', cl_name + '.log'), mode='w'),
+            logging.StreamHandler()]
+        logging.basicConfig(level=level, format=frmt, handlers=handlers)
 
-        # Path to astrometry-net cross-matched file.
-        astro_cross = 'in/' + f_id + "_corr.fits"
         # Path to APASS region
-        apass_reg = 'in/' + f_id + "_apass.csv"
+        apass_reg = 'in/' + cl_name + "_apass.csv"
 
-        print("\nProcessing: {}...".format(f_id))
+        logging.info("\nProcessing: {}...".format(cl_name))
         # Read cluster photometry.
-        x_p, y_p, v_p, bv_p, b_p = photRead(final_phot, col_IDs, log)
+        logging.info("\nRead final photometry")
+        ra_p, dec_p, v_p, bv_p, b_p = photRead(final_phot, col_IDs)
 
-        if astrom_gen is True:
-            # astrometry.net file
-            astrometryFeed(f_id, x_p, y_p, v_p, regs_filt)
-            print("astrometry.net file generated.")
-            break
-
-        # Read APASS data and astrometry.net correlated coordinates.
-        apass, cr_m_data = apassAstroRead(astro_cross, apass_reg)
-
-        # Pixels to RA,DEC
-        x_p, y_p = px2Eq(x_p, y_p, cr_m_data, log)
+        # Read APASS data.
+        logging.info("\nRead APASS file")
+        apass = apassRead(apass_reg)
 
         # Center APASS and filter data
-        x_apass, y_apass, x_iraf, y_iraf, V_apass, B_apass, BV_apass,\
+        logging.info("\nCenter APASS frame, filter data according to V range.")
+        ra_apass, dec_apass, ra_iraf, dec_iraf, V_apass, B_apass, BV_apass,\
             v_iraf, b_iraf, bv_iraf =\
-            centerFilter(x_p, y_p, v_p, b_p, bv_p, apass, V_max, V_min, log)
+            centerFilter(ra_p, dec_p, v_p, b_p, bv_p, apass, V_max, V_min)
 
         # Find stars within match tolerance.
+        logging.info("\nMatching stars...")
         x_a, y_a, x_i, y_i, V_a_f, B_a_f, BV_a_f, V_i_f, B_i_f, BV_i_f =\
             matchStars(
-                x_apass, y_apass, x_iraf, y_iraf, V_apass, B_apass, BV_apass,
-                v_iraf, b_iraf, bv_iraf, N_tol, outl_tol, log)
+                ra_apass, dec_apass, ra_iraf, dec_iraf, V_apass, B_apass,
+                BV_apass, v_iraf, b_iraf, bv_iraf, N_tol, outl_tol)
 
+        logging.info("\nEstimate mean/median differences")
+        Vmed, Vmean, Vstd, Bmed, Bmean, Bstd, BVmed, BVmean, BVstd =\
+            diffsPhot(V_a_f, V_i_f, B_a_f, B_i_f, BV_a_f, BV_i_f)
+
+        logging.info("\nPlotting...")
         makePlot(
-            f_id, V_min, V_max, N_tol, x_apass, y_apass, V_apass,
-            x_iraf, y_iraf, v_iraf, x_a, y_a, x_i, y_i, V_a_f, B_a_f, BV_a_f,
-            V_i_f, B_i_f, BV_i_f, log)
+            cl_name, V_min, V_max, N_tol, ra_apass, dec_apass, V_apass,
+            ra_iraf, dec_iraf, v_iraf, x_a, y_a, x_i, y_i, V_a_f, B_a_f,
+            BV_a_f, V_i_f, B_i_f, BV_i_f, Vmed, Vmean, Vstd, Bmed, Bmean, Bstd,
+            BVmed, BVmean, BVstd)
 
-        log.close()
-        print("End")
+        logging.info("\nEnd")
 
 
 def params_input():
@@ -104,11 +105,8 @@ def params_input():
                     N_tol = float(reader[1])
                 if reader[0] == 'OM':
                     outl_tol = float(reader[1])
-                if reader[0] == 'AT':
-                    astrom_gen = True if reader[1] == 'True' else False
-                    regs_filt = list(map(float, reader[2:]))
 
-    return col_IDs, V_min, V_max, N_tol, outl_tol, astrom_gen, regs_filt
+    return col_IDs, V_min, V_max, N_tol, outl_tol
 
 
 def get_files():
@@ -125,106 +123,39 @@ def get_files():
     return cl_files
 
 
-def photRead(final_phot, col_IDs, log):
+def photRead(final_phot, col_IDs):
     """
     Select a file with photometry to read and compare with APASS.
     """
     # Final calibrated photometry
-    print("Read final photometry")
     phot = ascii.read(final_phot, fill_values=('INDEF', np.nan))
 
-    id_x, id_y, id_v, id_bv = col_IDs
-    x_p, y_p, v_p, bv_p = phot[id_x], phot[id_y], phot[id_v], phot[id_bv]
+    id_ra, id_dec, id_v, id_bv = col_IDs
+    ra_p, dec_p, v_p, bv_p = phot[id_ra], phot[id_dec], phot[id_v], phot[id_bv]
     b_p = bv_p + v_p
 
-    return x_p, y_p, v_p, bv_p, b_p
+    return ra_p, dec_p, v_p, bv_p, b_p
 
 
-def astrometryFeed(f_id, x_p, y_p, v_p, regs_filt):
-    """
-    Create file with the proper format to feed astrometry.net
-    """
-    t = Table([x_p, y_p, v_p], names=('x', 'y', 'V'))
-    t.sort('V')
-
-    # Define central region limits.
-    xmin, xmax, ymin, ymax = regs_filt
-    mask = [xmin < t['x'], t['x'] < xmax, ymin < t['y'], t['y'] < ymax]
-    total_mask = reduce(np.logical_and, mask)
-    xm, ym = t['x'][total_mask], t['y'][total_mask]
-
-    ascii.write(
-        [xm, ym], 'out/' + f_id + "_astrometry.dat",
-        delimiter=' ', format='fixed_width_no_header', overwrite=True)
-
-
-def apassAstroRead(astro_cross, apass_reg):
+def apassRead(apass_reg):
     """
     Read APASS data.
     """
-    print("Read APASS and astrometry.net files")
     apass = ascii.read(apass_reg, fill_values=('NA', np.nan))
 
-    # astrometry.net cross-matched data
-    hdul = fits.open(astro_cross)
-    cr_m_data = hdul[1].data
-
-    return apass, cr_m_data
+    return apass
 
 
-def func(X, a, b, c):
-    x, y = X
-    return a * x + b + c * y
-
-
-def px2Eq(x_p, y_p, cr_m_data, log):
-    """
-    Transform pixels to (ra, dec) using the correlated astrometry.net file.
-    """
-    print("Obtain transformation polynomials")
-
-    x0, y0 = cr_m_data['field_ra'], cr_m_data['field_dec']
-    x1, y1 = cr_m_data['field_x'], cr_m_data['field_y']
-    p0 = (0., 100., 0.)
-    x2ra = curve_fit(func, (x1, y1), x0, p0)[0]
-    y2de = curve_fit(func, (y1, x1), y0, p0)[0]
-
-    print("\nTransformation polynomials:", file=log)
-    print("ra  = {:.5f} * x + {:.5f} + {:.7f} * y".format(*x2ra), file=log)
-    print("dec = {:.5f} * y + {:.5f} + {:.7f} * x\n".format(*y2de), file=log)
-    x_p0 = x2ra[0] * x_p + x2ra[1] + x2ra[2] * y_p
-    y_p = y2de[0] * y_p + y2de[1] + y2de[2] * x_p
-    x_p = x_p0
-
-    # plt.subplot(121)
-    # plt.scatter(cr_m_data['field_x'], cr_m_data['field_ra'])
-    # plt.plot(
-    #     [min(cr_m_data['field_x']), max(cr_m_data['field_x'])],
-    #     [f(min(cr_m_data['field_x']), m_ra, h_ra),
-    #      f(max(cr_m_data['field_x']), m_ra, h_ra)], c='r')
-    # plt.subplot(122)
-    # plt.scatter(cr_m_data['field_y'], cr_m_data['field_dec'])
-    # plt.plot(
-    #     [min(cr_m_data['field_y']), max(cr_m_data['field_y'])],
-    #     [f(min(cr_m_data['field_y']), m_de, h_de),
-    #      f(max(cr_m_data['field_y']), m_de, h_de)], c='r')
-    # plt.show()
-
-    return x_p, y_p
-
-
-def centerFilter(x_p, y_p, v_p, b_p, bv_p, apass, mag_max, mag_min, log):
+def centerFilter(ra_p, dec_p, v_p, b_p, bv_p, apass, mag_max, mag_min):
     """
     Center APASS frame, filter data according to V range.
     """
-    print("Center APASS frame, filter data according to V range.")
-
     # Center frame for APASS data with proper range.
-    xmin, xmax, ymin, ymax = x_p.min(), x_p.max(), y_p.min(), y_p.max()
+    xmin, xmax, ymin, ymax = ra_p.min(), ra_p.max(), dec_p.min(), dec_p.max()
     ra_c, de_c = .5 * (xmin + xmax), .5 * (ymin + ymax)
     ra_l, de_l = .5 * (xmax - xmin), .5 * (ymax - ymin)
-    print("RA range : {:.1f} arcsec".format(ra_l * 3600), file=log)
-    print("DEC range: {:.1f} arcsec".format(de_l * 3600), file=log)
+    logging.info("RA range : {:.1f} arcsec".format(ra_l * 3600))
+    logging.info("DEC range: {:.1f} arcsec".format(de_l * 3600))
 
     # Filter APASS frame to match the observed frame.
     mask = [apass['radeg'] < ra_c + ra_l, ra_c - ra_l < apass['radeg'],
@@ -236,20 +167,20 @@ def centerFilter(x_p, y_p, v_p, b_p, bv_p, apass, mag_max, mag_min, log):
     V_apass = apass['Johnson_V'][total_mask]
     B_apass = apass['Johnson_B'][total_mask]
     BV_apass = B_apass - V_apass
-    x, y = ra_apass, deg_apass
-    print("Max APASS V: {:.1f}".format(max(V_apass)), file=log)
+    ra_a, dec_a = ra_apass, deg_apass
+    logging.info("Max APASS V: {:.1f}".format(max(V_apass)))
 
     # Filter observed data to the fixed magnitude range.
     mask = [mag_min < v_p, v_p < mag_max]  # , ev_p < .03
     mask = reduce(np.logical_and, mask)
-    print("\nMag limit for IRAF: {}".format(mag_max), file=log)
-    x_i, y_i, v_i = x_p[mask], y_p[mask], v_p[mask]
+    logging.info("Mag limit for IRAF: {}".format(mag_max))
+    ra_i, dec_i, v_i = ra_p[mask], dec_p[mask], v_p[mask]
     b_i, bv_i = b_p[mask], bv_p[mask]
 
-    print("APASS stars: {}".format(len(x)), file=log)
-    print("IRAF stars: {}".format(len(x_i)), file=log)
+    logging.info("APASS stars: {}".format(len(ra_a)))
+    logging.info("IRAF stars: {}".format(len(ra_i)))
 
-    return x, y, x_i, y_i, V_apass, B_apass, BV_apass, v_i, b_i, bv_i
+    return ra_a, dec_a, ra_i, dec_i, V_apass, B_apass, BV_apass, v_i, b_i, bv_i
 
 
 def closestStar(x_fr1, y_fr1, x_fr2, y_fr2):
@@ -293,16 +224,14 @@ def closestStar(x_fr1, y_fr1, x_fr2, y_fr2):
 
 
 def matchStars(
-        x_apass, y_apass, x_iraf, y_iraf, V_apass, B_apass, BV_apass, v_iraf,
-        b_iraf, bv_iraf, N_tol, outl_tol, log):
+    x_apass, y_apass, x_iraf, y_iraf, V_apass, B_apass, BV_apass, v_iraf,
+        b_iraf, bv_iraf, N_tol, outl_tol):
     """
     """
-    print("Matching stars...")
-
     min_dist_idx, min_dists = closestStar(x_apass, y_apass, x_iraf, y_iraf)
 
-    print("\nMatch tolerance: {} arcsec".format(N_tol), file=log)
-    print("Outlier tolerance: {} mag".format(outl_tol), file=log)
+    logging.info("Match tolerance: {} arcsec".format(N_tol))
+    logging.info("Outlier tolerance: {} mag".format(outl_tol))
     rad = (1. / 3600) * N_tol
     x_a, y_a, x_i, y_i = [], [], [], []
     V_a_f, B_a_f, BV_a_f, V_i_f, B_i_f, BV_i_f = [], [], [], [], [], []
@@ -315,7 +244,8 @@ def matchStars(
             # print(" V_1={:.2f}, V_2={:.2f}".format(
             #     V_apass[st1_i], v_i[st2_i]))
             if abs(V_apass[st1_i] - v_iraf[st2_i]) > outl_tol:
-                print('  Outlier:', V_apass[st1_i], v_iraf[st2_i], file=log)
+                logging.info(
+                    '  Outlier: {}, {}'.format(V_apass[st1_i], v_iraf[st2_i]))
             else:
                 x_a.append(x_apass[st1_i])
                 y_a.append(y_apass[st1_i])
@@ -329,7 +259,7 @@ def matchStars(
                 B_i_f.append(b_iraf[st2_i])
                 BV_i_f.append(bv_iraf[st2_i])
 
-    print("\nMatched stars: {}".format(len(x_a)), file=log)
+    logging.info("Matched stars: {}".format(len(x_a)))
 
     V_a_f, B_a_f, BV_a_f, V_i_f, B_i_f, BV_i_f =\
         np.array(V_a_f), np.array(B_a_f), np.array(BV_a_f),\
@@ -337,14 +267,36 @@ def matchStars(
     return x_a, y_a, x_i, y_i, V_a_f, B_a_f, BV_a_f, V_i_f, B_i_f, BV_i_f
 
 
+def diffsPhot(V_a_f, V_i_f, B_a_f, B_i_f, BV_a_f, BV_i_f):
+    """
+    """
+    Vmed, Vmean, Vstd = np.nanmedian(V_a_f - V_i_f),\
+        np.nanmean(V_a_f - V_i_f), np.nanstd(V_a_f - V_i_f)
+    logging.info("median (V_APASS-V_IRAF): {:.4f}".format(Vmed))
+    logging.info("mean   (V_APASS-V_IRAF): {:.4f} +/- {:.4f}".format(
+        Vmean, Vstd))
+
+    Bmed, Bmean, Bstd = np.nanmedian(B_a_f - B_i_f),\
+        np.nanmean(B_a_f - B_i_f), np.nanstd(B_a_f - B_i_f)
+    logging.info("median (B_APASS-B_IRAF): {:.4f}".format(Bmed))
+    logging.info("mean   (B_APASS-B_IRAF): {:.4f} +/- {:.4f}".format(
+        Bmean, Bstd))
+
+    BVmed, BVmean, BVstd = np.nanmedian(BV_a_f - BV_i_f),\
+        np.nanmean(BV_a_f - BV_i_f), np.nanstd(BV_a_f - BV_i_f)
+    logging.info("median (BV_APASS-BV_IRAF): {:.4f}".format(BVmed))
+    logging.info("mean   (BV_APASS-BV_IRAF): {:.4f} +/- {:.4f}".format(
+        BVmean, BVstd))
+
+    return Vmed, Vmean, Vstd, Bmed, Bmean, Bstd, BVmed, BVmean, BVstd
+
+
 def makePlot(
     f_id, V_min, V_max, N_tol, x_apass, y_apass, V_apass, x_iraf, y_iraf,
-        v_iraf, x_a, y_a, x_i, y_i, V_a_f, B_a_f, BV_a_f, V_i_f, B_i_f,
-        BV_i_f, log):
+    v_iraf, x_a, y_a, x_i, y_i, V_a_f, B_a_f, BV_a_f, V_i_f, B_i_f,
+        BV_i_f, Vmed, Vmean, Vstd, Bmed, Bmean, Bstd, BVmed, BVmean, BVstd):
     """
     """
-    print("Plotting...")
-
     plt.style.use('seaborn-darkgrid')
     fig = plt.figure(figsize=(18, 12))
     gs = gridspec.GridSpec(12, 18)
@@ -384,10 +336,6 @@ def makePlot(
     plt.xlim(min(B_a_f), max(B_a_f))
     plt.ylim(min(B_a_f), max(B_a_f))
 
-    Vmed, Vmean, Vstd = np.nanmedian(V_a_f - V_i_f),\
-        np.nanmean(V_a_f - V_i_f), np.nanstd(V_a_f - V_i_f)
-    print("median(V_APASS-V_IRAF): {:.4f}".format(Vmed), file=log)
-    print("mean(V_APASS-V_IRAF): {:.4f}".format(Vmean), file=log)
     plt.subplot(gs[6:12, 0:6])
     plt.ylim(-.5, .5)
     plt.title(
@@ -399,10 +347,6 @@ def makePlot(
     plt.axhline(y=Vmed, c='r')
     plt.axhline(y=Vmean, ls='--', c='g')
 
-    Bmed, Bmean, Bstd = np.nanmedian(B_a_f - B_i_f),\
-        np.nanmean(B_a_f - B_i_f), np.nanstd(B_a_f - B_i_f)
-    print("median(B_APASS-B_IRAF): {:.4f}".format(Bmed), file=log)
-    print("mean(B_APASS-B_IRAF): {:.4f}".format(Bmean), file=log)
     plt.subplot(gs[6:12, 6:12])
     plt.ylim(-.5, .5)
     plt.title(
@@ -415,10 +359,8 @@ def makePlot(
     plt.axhline(y=Bmean, ls='--', c='g')
 
     plt.subplot(gs[6:12, 12:18])
-    BVmea, BVmed, BVstd = np.nanmean(BV_a_f - BV_i_f),\
-        np.nanmedian(BV_a_f - BV_i_f), np.nanstd(BV_a_f - BV_i_f)
     plt.title(
-        r"$\Delta BV_{{mean}}=${:.4f}$\pm${:.4f}, ".format(BVmea, BVstd) +
+        r"$\Delta BV_{{mean}}=${:.4f}$\pm${:.4f}, ".format(BVmean, BVstd) +
         r"$\Delta BV_{{median}}=${:.4f}".format(BVmed), fontsize=12)
     plt.scatter(BV_a_f, V_a_f, s=7, label="APASS")
     plt.scatter(BV_i_f, V_i_f, s=7, label="IRAF")
