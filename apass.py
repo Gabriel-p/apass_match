@@ -14,7 +14,7 @@ import matplotlib.gridspec as gridspec
 from astropy.io import ascii
 
 
-def main():
+def main(plot_all=True):
     """
     Requires two input files with the following naming convention:
 
@@ -23,7 +23,7 @@ def main():
 
     """
 
-    col_IDs, V_min, V_max, N_tol, outl_tol = params_input()
+    col_IDs, V_min, V_max, eVmax, eBVmax, N_tol, outl_tol = params_input()
 
     # Generate output dir if it doesn't exist.
     if not exists('out'):
@@ -34,6 +34,7 @@ def main():
     if not clusters:
         print("No input cluster files found")
 
+    data_all = [[] for _ in range(6)]
     mypath = Path().absolute()
     for final_phot in clusters:
 
@@ -55,7 +56,8 @@ def main():
         logging.info("\nProcessing: {}...".format(cl_name))
         # Read cluster photometry.
         logging.info("\nRead final photometry")
-        ra_p, dec_p, v_p, bv_p, b_p = photRead(final_phot, col_IDs)
+        ra_p, dec_p, v_p, bv_p, b_p = photRead(
+            final_phot, col_IDs, eVmax, eBVmax)
 
         # Read APASS data.
         logging.info("\nRead APASS file")
@@ -74,18 +76,28 @@ def main():
                 ra_apass, dec_apass, ra_iraf, dec_iraf, V_apass, B_apass,
                 BV_apass, v_iraf, b_iraf, bv_iraf, N_tol, outl_tol)
 
-        logging.info("\nEstimate mean/median differences")
-        Vmed, Vmean, Vstd, Bmed, Bmean, Bstd, BVmed, BVmean, BVstd =\
-            diffsPhot(V_a_f, V_i_f, B_a_f, B_i_f, BV_a_f, BV_i_f)
+        if plot_all:
+            # Store for plotting of all combined data
+            for i, dd in enumerate([
+                    V_a_f, B_a_f, BV_a_f, V_i_f, B_i_f, BV_i_f]):
+                data_all[i] += list(dd)
 
-        logging.info("\nPlotting...")
-        makePlot(
-            cl_name, V_min, V_max, N_tol, ra_apass, dec_apass, V_apass,
-            ra_iraf, dec_iraf, v_iraf, x_a, y_a, x_i, y_i, V_a_f, B_a_f,
-            BV_a_f, V_i_f, B_i_f, BV_i_f, Vmed, Vmean, Vstd, Bmed, Bmean, Bstd,
-            BVmed, BVmean, BVstd)
+        if not plot_all:
+            logging.info("\nEstimate mean/median differences")
+            Vmed, Vmean, Vstd, Bmed, Bmean, Bstd, BVmed, BVmean, BVstd =\
+                diffsPhot(V_a_f, V_i_f, B_a_f, B_i_f, BV_a_f, BV_i_f)
 
-        logging.info("\nEnd")
+            logging.info("\nPlotting...")
+            makePlot(
+                cl_name, V_min, V_max, N_tol, ra_apass, dec_apass, V_apass,
+                ra_iraf, dec_iraf, v_iraf, x_a, y_a, x_i, y_i, V_a_f, B_a_f,
+                BV_a_f, V_i_f, B_i_f, BV_i_f, Vmed, Vmean, Vstd, Bmed, Bmean,
+                Bstd, BVmed, BVmean, BVstd)
+
+            logging.info("\nEnd")
+
+    if plot_all:
+        makePlotAll(data_all)
 
 
 def params_input():
@@ -100,13 +112,13 @@ def params_input():
                 if reader[0] == 'CI':
                     col_IDs = reader[1:]
                 if reader[0] == 'VM':
-                    V_min, V_max = list(map(float, reader[1:]))
+                    V_min, V_max, eVmax, eBVmax = list(map(float, reader[1:]))
                 if reader[0] == 'TO':
                     N_tol = float(reader[1])
                 if reader[0] == 'OM':
                     outl_tol = float(reader[1])
 
-    return col_IDs, V_min, V_max, N_tol, outl_tol
+    return col_IDs, V_min, V_max, eVmax, eBVmax, N_tol, outl_tol
 
 
 def get_files():
@@ -123,18 +135,26 @@ def get_files():
     return cl_files
 
 
-def photRead(final_phot, col_IDs):
+def photRead(final_phot, col_IDs, eVmax, eBVmax):
     """
     Select a file with photometry to read and compare with APASS.
     """
     # Final calibrated photometry
     phot = ascii.read(final_phot, fill_values=('INDEF', np.nan))
 
-    id_ra, id_dec, id_v, id_bv = col_IDs
-    ra_p, dec_p, v_p, bv_p = phot[id_ra], phot[id_dec], phot[id_v], phot[id_bv]
-    b_p = bv_p + v_p
+    id_ra, id_dec, id_v, id_ev, id_bv, id_ebv = col_IDs
+    ra, dec, v, bv, e_v, e_bv = phot[id_ra], phot[id_dec], phot[id_v],\
+        phot[id_bv], phot[id_ev], phot[id_ebv]
+    b = bv + v
 
-    return ra_p, dec_p, v_p, bv_p, b_p
+    # Mask bad photometry
+    msk0 = (v < 50.) & (bv < 50.)
+    # Mask large errors
+    msk1, msk2 = e_v < eVmax, e_bv < eBVmax
+    msk = msk0 & msk1 & msk2
+    ra, dec, v, bv, b = ra[msk], dec[msk], v[msk], bv[msk], b[msk]
+
+    return ra, dec, v, bv, b
 
 
 def apassRead(apass_reg):
@@ -160,12 +180,12 @@ def centerFilter(ra_p, dec_p, v_p, b_p, bv_p, apass, mag_max, mag_min):
     # Filter APASS frame to match the observed frame.
     mask = [apass['radeg'] < ra_c + ra_l, ra_c - ra_l < apass['radeg'],
             apass['decdeg'] < de_c + de_l, apass['decdeg'] > de_c - de_l,
-            mag_min < apass['Johnson_V'], apass['Johnson_V'] < mag_max]
+            mag_min < apass['Johnson_V (V)'], apass['Johnson_V (V)'] < mag_max]
     total_mask = reduce(np.logical_and, mask)
     ra_apass = apass['radeg'][total_mask]
     deg_apass = apass['decdeg'][total_mask]
-    V_apass = apass['Johnson_V'][total_mask]
-    B_apass = apass['Johnson_B'][total_mask]
+    V_apass = apass['Johnson_V (V)'][total_mask]
+    B_apass = apass['Johnson_B (B)'][total_mask]
     BV_apass = B_apass - V_apass
     ra_a, dec_a = ra_apass, deg_apass
     logging.info("Max APASS V: {:.1f}".format(max(V_apass)))
@@ -273,19 +293,19 @@ def diffsPhot(V_a_f, V_i_f, B_a_f, B_i_f, BV_a_f, BV_i_f):
     Vmed, Vmean, Vstd = np.nanmedian(V_a_f - V_i_f),\
         np.nanmean(V_a_f - V_i_f), np.nanstd(V_a_f - V_i_f)
     logging.info("median (V_APASS-V_IRAF): {:.4f}".format(Vmed))
-    logging.info("mean   (V_APASS-V_IRAF): {:.4f} +/- {:.4f}".format(
+    logging.info("mean   (V_APASS-V_IRAF): {:.4f}$\pm${:.4f}".format(
         Vmean, Vstd))
 
     Bmed, Bmean, Bstd = np.nanmedian(B_a_f - B_i_f),\
         np.nanmean(B_a_f - B_i_f), np.nanstd(B_a_f - B_i_f)
     logging.info("median (B_APASS-B_IRAF): {:.4f}".format(Bmed))
-    logging.info("mean   (B_APASS-B_IRAF): {:.4f} +/- {:.4f}".format(
+    logging.info("mean   (B_APASS-B_IRAF): {:.4f}$\pm${:.4f}".format(
         Bmean, Bstd))
 
     BVmed, BVmean, BVstd = np.nanmedian(BV_a_f - BV_i_f),\
         np.nanmean(BV_a_f - BV_i_f), np.nanstd(BV_a_f - BV_i_f)
     logging.info("median (BV_APASS-BV_IRAF): {:.4f}".format(BVmed))
-    logging.info("mean   (BV_APASS-BV_IRAF): {:.4f} +/- {:.4f}".format(
+    logging.info("mean   (BV_APASS-BV_IRAF): {:.4f}$\pm${:.4f}".format(
         BVmean, BVstd))
 
     return Vmed, Vmean, Vstd, Bmed, Bmean, Bstd, BVmed, BVmean, BVstd
@@ -374,6 +394,64 @@ def makePlot(
     fig.tight_layout()
     plt.savefig(
         'out/apass_' + f_id + '.png', dpi=300, bbox_inches='tight')
+
+
+def makePlotAll(data_all):
+    """
+    data_all = (V_apass, B_apass, BV_apass, V_iraf, B_iraf, BV_iraf)
+    """
+    data_all = np.array(data_all)
+    V_apass, B_apass, BV_apass, V_iraf, B_iraf, BV_iraf = data_all
+
+    Vmean, Vstd = np.mean(V_apass - V_iraf), np.std(V_apass - V_iraf)
+    Bmean, Bstd = np.mean(B_apass - B_iraf), np.std(B_apass - B_iraf)
+    BVmean, BVstd = np.mean(BV_apass - BV_iraf), np.std(BV_apass - BV_iraf)
+
+    plt.style.use('seaborn-darkgrid')
+    fig = plt.figure(figsize=(18, 12))
+    gs = gridspec.GridSpec(12, 18)
+
+    plt.subplot(gs[6:12, 0:6])
+    plt.ylim(-.5, .5)
+    # plt.title(
+    #     r"$\Delta V_{{mean}}=${:.4f}$\pm${:.4f}".format(Vmean, Vstd),
+    #     fontsize=12, y=.945)
+    plt.xlabel(r"$V_{{APASS}}$")
+    plt.ylabel(r"$V_{{APASS}}-V_{{IRAF}}$")
+    plt.scatter(V_apass, V_apass - V_iraf, s=4)
+    plt.axhline(
+        y=Vmean, ls='--', c='g',
+        label=r"$\Delta V_{{mean}}=${:.4f}$\pm${:.4f}".format(Vmean, Vstd))
+    plt.legend(fontsize=12)
+
+    plt.subplot(gs[6:12, 6:12])
+    plt.ylim(-.5, .5)
+    # plt.title(
+    #     r"$\Delta B_{{mean}}=${:.4f}$\pm${:.4f}".format(Bmean, Bstd),
+    #     fontsize=12, y=.945)
+    plt.xlabel(r"$B_{{APASS}}$")
+    plt.ylabel(r"$B_{{APASS}}-B_{{IRAF}}$")
+    plt.scatter(B_apass, B_apass - B_iraf, s=4)
+    plt.axhline(
+        y=Bmean, ls='--', c='g',
+        label=r"$\Delta B_{{mean}}=${:.4f}$\pm${:.4f}".format(Bmean, Bstd))
+    plt.legend(fontsize=12)
+
+    plt.subplot(gs[6:12, 12:18])
+    plt.ylim(-.5, .5)
+    # plt.title(
+    #     r"$\Delta BV_{{mean}}=${:.4f}$\pm${:.4f}".format(BVmean, BVstd),
+    #     fontsize=12, y=.945)
+    plt.xlabel(r"$BV_{{APASS}}$")
+    plt.ylabel(r"$BV_{{APASS}}-BV_{{IRAF}}$")
+    plt.scatter(V_apass, BV_apass - BV_iraf, s=4)
+    plt.axhline(
+        y=BVmean, ls='--', c='g',
+        label=r"$\Delta BV_{{mean}}=${:.4f}$\pm${:.4f}".format(BVmean, BVstd))
+    plt.legend(fontsize=12)
+
+    fig.tight_layout()
+    plt.savefig('out/apass_all.png', dpi=300, bbox_inches='tight')
 
 
 def star_size(mag, N=None, min_m=None):

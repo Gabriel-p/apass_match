@@ -2,23 +2,23 @@
 # Column IDs in photometry file. If no column names are assigned,
 # use 'col2', 'col3', etc.
 #
-#      ra    dec      V     BV
-CI     ra    dec      V     BV
+#      ra    dec      V    eV   BV   eBV
+CI     RA_ICRS  DE_ICRS      V   Verr   BV   BVerr
 
 
 # Magnitude limit for the photometry.
 #
-#   V_min    V_max
-VM     7.       16.
+#   V_min    V_max    eVmax   eBVmax
+VM     7.       14.    0.05      0.05
 
 
 # Tolerance in arcsec for the cross-match.
 #
 #    tol
-TO    5.
+TO     .5
 
 
 # Outlier max tolerance  (in V mags)
 #
 #   max_tol_mags
-OM            5
+OM            .5
