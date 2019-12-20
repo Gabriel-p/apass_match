@@ -83,16 +83,19 @@ def main(plot_all=True):
                 data_all[i] += list(dd)
 
         if not plot_all:
-            logging.info("\nEstimate mean/median differences")
-            Vmed, Vmean, Vstd, Bmed, Bmean, Bstd, BVmed, BVmean, BVstd =\
-                diffsPhot(V_a_f, V_i_f, B_a_f, B_i_f, BV_a_f, BV_i_f)
+            if len(x_a) > 1:
+                logging.info("\nEstimate mean/median differences")
+                Vmed, Vmean, Vstd, Bmed, Bmean, Bstd, BVmed, BVmean, BVstd =\
+                    diffsPhot(V_a_f, V_i_f, B_a_f, B_i_f, BV_a_f, BV_i_f)
 
-            logging.info("\nPlotting...")
-            makePlot(
-                cl_name, V_min, V_max, N_tol, ra_apass, dec_apass, V_apass,
-                ra_iraf, dec_iraf, v_iraf, x_a, y_a, x_i, y_i, V_a_f, B_a_f,
-                BV_a_f, V_i_f, B_i_f, BV_i_f, Vmed, Vmean, Vstd, Bmed, Bmean,
-                Bstd, BVmed, BVmean, BVstd)
+                logging.info("\nPlotting...")
+                makePlot(
+                    cl_name, V_min, V_max, N_tol, ra_apass, dec_apass, V_apass,
+                    ra_iraf, dec_iraf, v_iraf, x_a, y_a, x_i, y_i, V_a_f,
+                    B_a_f, BV_a_f, V_i_f, B_i_f, BV_i_f, Vmed, Vmean, Vstd,
+                    Bmed, Bmean, Bstd, BVmed, BVmean, BVstd)
+            else:
+                logging.info("\nERROR: no matches found. Halting.")
 
             logging.info("\nEnd")
 
@@ -161,7 +164,7 @@ def apassRead(apass_reg):
     """
     Read APASS data.
     """
-    apass = ascii.read(apass_reg, fill_values=('NA', np.nan))
+    apass = ascii.read(apass_reg, fill_values=(('NA', np.nan), ('', np.nan)))
 
     return apass
 
@@ -403,9 +406,10 @@ def makePlotAll(data_all):
     data_all = np.array(data_all)
     V_apass, B_apass, BV_apass, V_iraf, B_iraf, BV_iraf = data_all
 
-    Vmean, Vstd = np.mean(V_apass - V_iraf), np.std(V_apass - V_iraf)
-    Bmean, Bstd = np.mean(B_apass - B_iraf), np.std(B_apass - B_iraf)
-    BVmean, BVstd = np.mean(BV_apass - BV_iraf), np.std(BV_apass - BV_iraf)
+    Vmean, Vstd = np.nanmean(V_apass - V_iraf), np.nanstd(V_apass - V_iraf)
+    Bmean, Bstd = np.nanmean(B_apass - B_iraf), np.nanstd(B_apass - B_iraf)
+    BVmean, BVstd = np.nanmean(BV_apass - BV_iraf),\
+        np.nanstd(BV_apass - BV_iraf)
 
     plt.style.use('seaborn-darkgrid')
     fig = plt.figure(figsize=(18, 12))
