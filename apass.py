@@ -429,6 +429,7 @@ def makePlotAll(data_all):
     plt.legend(fontsize=12)
 
     plt.subplot(gs[6:12, 6:12])
+    plt.title("N={}".format(len(V_apass)))
     plt.ylim(-.5, .5)
     # plt.title(
     #     r"$\Delta B_{{mean}}=${:.4f}$\pm${:.4f}".format(Bmean, Bstd),

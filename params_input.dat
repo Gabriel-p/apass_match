@@ -15,7 +15,7 @@ VM      7.      14.     0.05     0.05
 # Tolerance in arcsec for the cross-match.
 #
 #    tol
-TO     1.
+TO    .5
 
 
 # Outlier max tolerance  (in V mags)
