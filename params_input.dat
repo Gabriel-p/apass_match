@@ -3,13 +3,13 @@
 # use 'col2', 'col3', etc.
 #
 #         ra       dec      V    eV   BV   eBV
-CI   RA_ICRS   DE_ICRS      V    eV   BV   eBV
+CI        ra       dec      V    eV   BV   eBV
 
 
 # Magnitude limit for the photometry.
 #
 #    V_min    V_max    eVmax   eBVmax
-VM      7.      14.     0.05     0.05
+VM      7.      15.     0.05     0.05
 
 
 # Tolerance in arcsec for the cross-match.

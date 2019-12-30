@@ -14,7 +14,7 @@ import matplotlib.gridspec as gridspec
 from astropy.io import ascii
 
 
-def main(plot_all=True):
+def main(plot_all=False):
     """
     Requires two input files with the following naming convention:
 
@@ -100,7 +100,7 @@ def main(plot_all=True):
             logging.info("\nEnd")
 
     if plot_all:
-        makePlotAll(data_all)
+        makePlotAll(data_all, N_tol)
 
 
 def params_input():
@@ -295,21 +295,20 @@ def diffsPhot(V_a_f, V_i_f, B_a_f, B_i_f, BV_a_f, BV_i_f):
     """
     Vmed, Vmean, Vstd = np.nanmedian(V_a_f - V_i_f),\
         np.nanmean(V_a_f - V_i_f), np.nanstd(V_a_f - V_i_f)
-    logging.info("median (V_APASS-V_IRAF): {:.4f}".format(Vmed))
-    logging.info("mean   (V_APASS-V_IRAF): {:.4f}$\pm${:.4f}".format(
-        Vmean, Vstd))
 
     Bmed, Bmean, Bstd = np.nanmedian(B_a_f - B_i_f),\
         np.nanmean(B_a_f - B_i_f), np.nanstd(B_a_f - B_i_f)
-    logging.info("median (B_APASS-B_IRAF): {:.4f}".format(Bmed))
-    logging.info("mean   (B_APASS-B_IRAF): {:.4f}$\pm${:.4f}".format(
-        Bmean, Bstd))
 
     BVmed, BVmean, BVstd = np.nanmedian(BV_a_f - BV_i_f),\
         np.nanmean(BV_a_f - BV_i_f), np.nanstd(BV_a_f - BV_i_f)
+
+    logging.info("median (V_APASS-V_IRAF): {:.4f}".format(Vmed))
+    logging.info("median (B_APASS-B_IRAF): {:.4f}".format(Bmed))
     logging.info("median (BV_APASS-BV_IRAF): {:.4f}".format(BVmed))
-    logging.info("mean   (BV_APASS-BV_IRAF): {:.4f}$\pm${:.4f}".format(
-        BVmean, BVstd))
+
+    logging.info(
+        r"xxx {:.3f}$\pm${:.3f} & {:.3f}$\pm${:.3f} & {:.3f}$\pm${:.3f} & {}".format(
+        Vmean, Vstd, Bmean, Bstd, BVmean, BVstd, len(V_a_f)))
 
     return Vmed, Vmean, Vstd, Bmed, Bmean, Bstd, BVmed, BVmean, BVstd
 
@@ -399,61 +398,78 @@ def makePlot(
         'out/apass_' + f_id + '.png', dpi=300, bbox_inches='tight')
 
 
-def makePlotAll(data_all):
+def makePlotAll(data_all, N_tol):
     """
     data_all = (V_apass, B_apass, BV_apass, V_iraf, B_iraf, BV_iraf)
     """
     data_all = np.array(data_all)
     V_apass, B_apass, BV_apass, V_iraf, B_iraf, BV_iraf = data_all
 
-    Vmean, Vstd = np.nanmean(V_apass - V_iraf), np.nanstd(V_apass - V_iraf)
-    Bmean, Bstd = np.nanmean(B_apass - B_iraf), np.nanstd(B_apass - B_iraf)
-    BVmean, BVstd = np.nanmean(BV_apass - BV_iraf),\
-        np.nanstd(BV_apass - BV_iraf)
-
     plt.style.use('seaborn-darkgrid')
-    fig = plt.figure(figsize=(18, 12))
-    gs = gridspec.GridSpec(12, 18)
+    plt.set_cmap('viridis')
+    fig = plt.figure(figsize=(25, 25))
+    gs = gridspec.GridSpec(4, 4)
 
-    plt.subplot(gs[6:12, 0:6])
-    plt.ylim(-.5, .5)
-    # plt.title(
-    #     r"$\Delta V_{{mean}}=${:.4f}$\pm${:.4f}".format(Vmean, Vstd),
-    #     fontsize=12, y=.945)
-    plt.xlabel(r"$V_{{APASS}}$")
-    plt.ylabel(r"$V_{{APASS}}-V_{{IRAF}}$")
-    plt.scatter(V_apass, V_apass - V_iraf, s=4)
+    minmax = 1.
+
+    plt.subplot(gs[0])
+    # plt.ylim(-.5, .5)
+    plt.xlabel(r"$V$")
+    plt.ylabel(r"$V_{{APASS}}-V$")
+    delta_V = V_apass - V_iraf
+    msk = (-minmax < delta_V) & (delta_V < minmax)
+    Vmean, Vstd = np.nanmean(delta_V[msk]), np.nanstd(delta_V[msk])
+    plt.title("N={}, mask=(-{}, {})".format(len(delta_V[msk]), minmax, minmax))
+    plt.scatter(V_iraf[msk], delta_V[msk], s=8, c=BV_iraf[msk])
     plt.axhline(
-        y=Vmean, ls='--', c='g',
+        y=Vmean, ls='--', c='r',
         label=r"$\Delta V_{{mean}}=${:.4f}$\pm${:.4f}".format(Vmean, Vstd))
+    plt.axhline(
+        y=np.nanmedian(delta_V[msk]), ls=':', c='k',
+        label="Median = {:.4f}".format(np.nanmedian(delta_V[msk])))
     plt.legend(fontsize=12)
 
-    plt.subplot(gs[6:12, 6:12])
-    plt.title("N={}".format(len(V_apass)))
-    plt.ylim(-.5, .5)
-    # plt.title(
-    #     r"$\Delta B_{{mean}}=${:.4f}$\pm${:.4f}".format(Bmean, Bstd),
-    #     fontsize=12, y=.945)
-    plt.xlabel(r"$B_{{APASS}}$")
-    plt.ylabel(r"$B_{{APASS}}-B_{{IRAF}}$")
-    plt.scatter(B_apass, B_apass - B_iraf, s=4)
+    plt.subplot(gs[1])
+    plt.xlabel(r"$B}$")
+    plt.ylabel(r"$B_{{APASS}}-B$")
+    delta_B = B_apass - B_iraf
+    msk = (-minmax < delta_B) & (delta_B < minmax)
+    Bmean, Bstd = np.nanmean(delta_B[msk]), np.nanstd(delta_B[msk])
+    plt.title("N={}, mask=(-{}, {})".format(len(delta_B[msk]), minmax, minmax))
+    plt.scatter(B_iraf[msk], delta_B[msk], s=8, c=BV_iraf[msk])
     plt.axhline(
-        y=Bmean, ls='--', c='g',
+        y=Bmean, ls='--', c='r',
         label=r"$\Delta B_{{mean}}=${:.4f}$\pm${:.4f}".format(Bmean, Bstd))
+    plt.axhline(
+        y=np.nanmedian(delta_B[msk]), ls=':', c='k',
+        label="Median = {:.4f}".format(np.nanmedian(delta_B[msk])))
     plt.legend(fontsize=12)
 
-    plt.subplot(gs[6:12, 12:18])
-    plt.ylim(-.5, .5)
-    # plt.title(
-    #     r"$\Delta BV_{{mean}}=${:.4f}$\pm${:.4f}".format(BVmean, BVstd),
-    #     fontsize=12, y=.945)
-    plt.xlabel(r"$BV_{{APASS}}$")
-    plt.ylabel(r"$BV_{{APASS}}-BV_{{IRAF}}$")
-    plt.scatter(V_apass, BV_apass - BV_iraf, s=4)
+    ax = plt.subplot(gs[2])
+    plt.xlabel(r"$V$")
+    plt.ylabel(r"$BV_{{APASS}}-BV$")
+    delta_BV = BV_apass - BV_iraf
+    msk = (-minmax < delta_BV) & (delta_BV < minmax)
+    BVmean, BVstd = np.nanmean(delta_BV[msk]), np.nanstd(delta_BV[msk])
+    plt.title(
+        "N={}, mask=(-{}, {})".format(len(delta_BV[msk]), minmax, minmax))
+    im = plt.scatter(V_iraf[msk], delta_BV[msk], s=8, c=BV_iraf[msk])
     plt.axhline(
-        y=BVmean, ls='--', c='g',
+        y=BVmean, ls='--', c='r',
         label=r"$\Delta BV_{{mean}}=${:.4f}$\pm${:.4f}".format(BVmean, BVstd))
+    plt.axhline(
+        y=np.nanmedian(delta_BV[msk]), ls=':', c='k',
+        label="Median = {:.4f}".format(np.nanmedian(delta_BV[msk])))
     plt.legend(fontsize=12)
+
+    print(N_tol, Vmean, Bmean, BVmean)
+
+    from mpl_toolkits.axes_grid1 import make_axes_locatable
+    divider = make_axes_locatable(ax)
+    cax = divider.append_axes('right', size='2%', pad=0.05)
+    cbar = plt.colorbar(im, cax=cax)
+    cbar.ax.set_ylabel('(B-V)', fontsize=10)
+    cbar.ax.tick_params(labelsize=8)
 
     fig.tight_layout()
     plt.savefig('out/apass_all.png', dpi=300, bbox_inches='tight')
