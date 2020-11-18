@@ -59,6 +59,11 @@ def main(plot_all=False):
         ra_p, dec_p, v_p, bv_p, b_p = photRead(
             final_phot, col_IDs, eVmax, eBVmax)
 
+        logging.info("V range: {:.2f} {:.2f}".format(V_min, V_max))
+        logging.info("Max errors: {:.2f} {:.2f}".format(eVmax, eBVmax))
+        logging.info("Match tolerance: {} arcsec".format(N_tol))
+        logging.info("Outlier tolerance: {} mag".format(outl_tol))
+
         # Read APASS data.
         logging.info("\nRead APASS file")
         apass = apassRead(apass_reg)
@@ -180,6 +185,9 @@ def centerFilter(ra_p, dec_p, v_p, b_p, bv_p, apass, mag_max, mag_min):
     logging.info("RA range : {:.1f} arcsec".format(ra_l * 3600))
     logging.info("DEC range: {:.1f} arcsec".format(de_l * 3600))
 
+    # Johnson_V (V) & Johnson_B (B) correspond to the DR10. Before that these
+    # keys were named: Johnson_V & Johnson_B
+
     # Filter APASS frame to match the observed frame.
     mask = [apass['radeg'] < ra_c + ra_l, ra_c - ra_l < apass['radeg'],
             apass['decdeg'] < de_c + de_l, apass['decdeg'] > de_c - de_l,
@@ -253,8 +261,6 @@ def matchStars(
     """
     min_dist_idx, min_dists = closestStar(x_apass, y_apass, x_iraf, y_iraf)
 
-    logging.info("Match tolerance: {} arcsec".format(N_tol))
-    logging.info("Outlier tolerance: {} mag".format(outl_tol))
     rad = (1. / 3600) * N_tol
     x_a, y_a, x_i, y_i = [], [], [], []
     V_a_f, B_a_f, BV_a_f, V_i_f, B_i_f, BV_i_f = [], [], [], [], [], []
