@@ -22,6 +22,7 @@ def main(plot_all=False):
     2. APASS file         : cluster_name_apass.csv
 
     """
+    mypath = Path().absolute()
 
     col_IDs, V_min, V_max, eVmax, eBVmax, N_tol, outl_tol = params_input()
 
@@ -34,21 +35,21 @@ def main(plot_all=False):
     if not clusters:
         print("No input cluster files found")
 
+    # Set up logging module
+    level = logging.INFO
+    frmt = ' %(message)s'
+    handlers = [
+        logging.FileHandler(
+            # join(mypath, 'out', cl_name + '.log'), mode='w'),
+            join(mypath, 'out/output.log'), mode='w'),
+        logging.StreamHandler()]
+    logging.basicConfig(level=level, format=frmt, handlers=handlers)
+
     data_all = [[] for _ in range(6)]
-    mypath = Path().absolute()
     for final_phot in clusters:
 
         # Extract name of file without extension
         cl_name = final_phot[3:-4]
-
-        # Set up logging module
-        level = logging.INFO
-        frmt = ' %(message)s'
-        handlers = [
-            logging.FileHandler(
-                join(mypath, 'out', cl_name + '.log'), mode='w'),
-            logging.StreamHandler()]
-        logging.basicConfig(level=level, format=frmt, handlers=handlers)
 
         # Path to APASS region
         apass_reg = 'in/' + cl_name + "_apass.csv"
@@ -114,7 +115,7 @@ def params_input():
     """
     with open('params_input.dat', "r") as f_dat:
         # Iterate through each line in the file.
-        for l, line in enumerate(f_dat):
+        for line in f_dat:
             if not line.startswith("#") and line.strip() != '':
                 reader = line.split()
                 if reader[0] == 'CI':
