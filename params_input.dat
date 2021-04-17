@@ -9,16 +9,16 @@ CI        ra       dec      V    eV   BV   eBV
 # Magnitude limit for the photometry.
 #
 #    V_min    V_max    eVmax   eBVmax
-VM      7.      17.     0.05     0.05
+VM      7.      16.     0.1     0.2
 
 
 # Tolerance in arcsec for the cross-match.
 #
 #    tol
-TO    .5
+TO    5
 
 
 # Outlier max tolerance  (in V mags)
 #
 #   max_tol_mags
-OM            .5
+OM            1.
